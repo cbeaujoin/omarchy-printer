@@ -66,6 +66,7 @@ MAX_JOBS = 20
 MAX_TEXT = 80
 MAX_RECORD = 32768
 MAX_ADDRS = 4
+MAX_NETWORK = 32               # network entries kept; only configured printers qualify anyway
 MAX_IPPTOOL_OUTPUT = 1 << 20   # bytes read from one ipptool run
 MAX_AVAHI_OUTPUT = 256 << 10   # bytes read from one avahi-browse run
 
@@ -483,6 +484,23 @@ def is_network(device_uri: str) -> bool:
     return bool(device_key(device_uri) or PLAIN_RE.match(device_uri or ""))
 
 
+def is_configured(name: str, entry: dict, device_uris) -> bool:
+    """True if a discovered network entry belongs to a printer set up in CUPS.
+
+    Avahi reports every printer on the LAN; keeping all of them would let any
+    device there grow the helper's memory by rotating service names.
+    """
+    for uri in device_uris:
+        if device_key(uri) == name:
+            return True
+        m = PLAIN_RE.match(uri or "")
+        if m:
+            want = m.group(2).strip("[]").rstrip(".").lower()
+            if entry.get("host", "").lower() == want or any(a[1].lower() == want for a in entry.get("addrs", [])):
+                return True
+    return False
+
+
 def reach_targets(device_uri: str, network: dict) -> list:
     """Candidate socket addresses to knock on, best first."""
     key = device_key(device_uri)
@@ -631,8 +649,12 @@ class NetWatch(threading.Thread):
         if now - self.resolved_at > (RESOLVE_RETRY if unresolved else RESOLVE_EVERY) or not self.resolved_at:
             fresh = resolve_network()
             self.resolved_at = now
-            # Merge, so a printer that is off right now keeps its last addresses.
-            network = {**network, **fresh}
+            # Merge, so a printer that is off right now keeps its last addresses,
+            # but keep only entries for printers set up in CUPS: that drops
+            # every unrelated device on the LAN, and a printer that was removed.
+            uris = list(net_printers.values())
+            network = {k: v for k, v in {**network, **fresh}.items() if is_configured(k, v, uris)}
+            network = dict(list(network.items())[:MAX_NETWORK])
             with self.lock:
                 self.network = network
             self.wake()  # web page links may have appeared
