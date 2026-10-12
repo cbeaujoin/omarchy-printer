@@ -39,6 +39,7 @@ import select
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -73,7 +74,6 @@ MAX_AVAHI_OUTPUT = 256 << 10   # bytes read from one avahi-browse run
 # Absolute paths, so nothing earlier in PATH can stand in for these.
 IPPTOOL = "/usr/bin/ipptool"
 AVAHI_BROWSE = "/usr/bin/avahi-browse"
-NOTIFY_SEND = "/usr/bin/notify-send"
 DBUS_MONITOR = "/usr/bin/dbus-monitor"
 
 MARKER_LABELS = {"BK": "Black", "K": "Black", "C": "Cyan", "M": "Magenta", "Y": "Yellow"}
@@ -568,15 +568,111 @@ def direct_uri(device_uri: str, network: dict) -> tuple[str, str]:
 NOTIFY = "--no-notify" not in sys.argv[1:]
 
 
+class _Wire:
+    """Just enough D-Bus marshalling (little endian) for one method call."""
+
+    def __init__(self):
+        self.b = bytearray()
+
+    def pad(self, n: int) -> None:
+        self.b += b"\0" * (-len(self.b) % n)
+
+    def byte(self, v: int) -> None:
+        self.b.append(v)
+
+    def u32(self, v: int) -> None:
+        self.pad(4)
+        self.b += struct.pack("<I", v)
+
+    def i32(self, v: int) -> None:
+        self.pad(4)
+        self.b += struct.pack("<i", v)
+
+    def string(self, v: str) -> None:
+        data = v.encode("utf-8", "replace")
+        self.u32(len(data))
+        self.b += data + b"\0"
+
+    def signature(self, v: str) -> None:
+        self.byte(len(v))
+        self.b += v.encode("ascii") + b"\0"
+
+
+def dbus_method_call(serial: int, dest: str, path: str, iface: str, member: str,
+                     sig: str = "", body: bytes = b"") -> bytes:
+    fields = _Wire()
+    for code, typ, value in ((1, "o", path), (6, "s", dest), (2, "s", iface), (3, "s", member), (8, "g", sig)):
+        if code == 8 and not sig:
+            continue
+        fields.pad(8)
+        fields.byte(code)
+        fields.signature(typ)
+        fields.signature(value) if typ == "g" else fields.string(value)
+    # endian, method call, no flags, version 1, body length, serial, then the
+    # header fields; the body starts on an 8-byte boundary.
+    msg = bytearray(b"l\x01\x00\x01" + struct.pack("<II", len(body), serial))
+    msg += struct.pack("<I", len(fields.b)) + fields.b
+    msg += b"\0" * (-len(msg) % 8)
+    return bytes(msg) + body
+
+
+def session_bus_address() -> str:
+    for part in os.environ.get("DBUS_SESSION_BUS_ADDRESS", "").split(";"):
+        if part.startswith("unix:"):
+            for kv in part[5:].split(","):
+                key, _, val = kv.partition("=")
+                if key == "path" and val.startswith("/"):
+                    return val
+                if key == "abstract" and val:
+                    return "\0" + val
+    return f"/run/user/{os.getuid()}/bus"
+
+
 def notify(title: str, body: str = "", urgent: bool = False) -> None:
+    """Show a desktop notification through org.freedesktop.Notifications.
+
+    Sent straight over the session bus rather than through notify-send, so the
+    text (a document title, for one) never appears in a process's arguments,
+    where another local user could read it from /proc/<pid>/cmdline.
+    Best effort: any failure just means no notification.
+    """
     if not NOTIFY:
         return
     try:
-        subprocess.Popen([NOTIFY_SEND, "-a", "Printer", "-i", "printer",
-                          "-u", "critical" if urgent else "normal", title, body],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError:
+        w = _Wire()
+        w.string("Printer")           # app_name
+        w.u32(0)                      # replaces_id
+        w.string("printer")           # app_icon
+        w.string(clip(title, 80))     # summary
+        # Angle brackets could be read as markup by a notification server.
+        w.string(clip(body, 160).replace("<", "\u2039").replace(">", "\u203a"))
+        w.u32(0)                      # actions: empty array
+        w.pad(4)
+        at = len(w.b)
+        w.b += b"\0\0\0\0"
+        w.pad(8)
+        start = len(w.b)
+        w.pad(8)
+        w.string("urgency")           # hints: {"urgency": byte}
+        w.signature("y")
+        w.byte(2 if urgent else 1)
+        w.b[at:at + 4] = struct.pack("<I", len(w.b) - start)
+        w.i32(-1)                     # expire_timeout: server default
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect(session_bus_address())
+            sock.sendall(b"\0AUTH EXTERNAL " + str(os.getuid()).encode().hex().encode() + b"\r\n")
+            if not sock.recv(256).startswith(b"OK"):
+                return
+            sock.sendall(b"BEGIN\r\n")
+            sock.sendall(dbus_method_call(1, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                                          "org.freedesktop.DBus", "Hello"))
+            sock.recv(4096)           # the reply to Hello: we have a bus name
+            sock.sendall(dbus_method_call(2, "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                                          "org.freedesktop.Notifications", "Notify",
+                                          "susssasa{sv}i", bytes(w.b)))
+            sock.recv(4096)           # wait for the reply, so the call is delivered
+    except (OSError, ValueError, struct.error):
         pass
 
 

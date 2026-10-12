@@ -55,7 +55,7 @@ plugin downloads nothing and needs no printer drivers or vendor tools.
 | `nss-mdns` | resolving `.local` printer names |
 | `python` | the status script (standard library only, no pip packages) |
 | `dbus` | `dbus-monitor`, to hear CUPS job and printer events instead of polling |
-| `libnotify` | `notify-send`, for notifications |
+| `libnotify` | `notify-send`, for the *scan finished* notification (other notifications are sent straight over D-Bus) |
 | `polkit` | `pkexec`, for the password prompt when pausing or resuming |
 | `xdg-utils` | `xdg-open`, for the printer's web page |
 | `uwsm` | launching printer settings (part of Omarchy) |
@@ -189,10 +189,12 @@ memory.
 only up to a fixed size, and a command that prints more or runs too long is
 stopped. Of everything Avahi reports on the network, only the entries for the
 printers you set up in CUPS are kept (at most 32), so other devices cannot
-grow the helper's memory. At most 8 printers, 8 toners and 20 jobs per record, text fields
-clipped to 80 characters, and each record capped at 32 KB. All
-printer-supplied text is shown as plain text, never as markup. Actions run
-with fixed arguments, never through a shell.
+grow the helper's memory. At most 8 printers, 8 toners and 20 jobs per record,
+text fields clipped to 80 characters, and each record capped at 32 KB. All
+printer-supplied text is shown as plain text, never as markup. Notifications
+go straight to the desktop's notification service over D-Bus, never through a
+command line, so a document title is not visible to other users in the process
+list. Actions run with fixed arguments, never through a shell.
 
 ## Scanning
 
