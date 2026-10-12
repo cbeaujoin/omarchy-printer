@@ -516,6 +516,18 @@ def scanner_of(device_uri: str, network: dict) -> dict | None:
     """What the panel needs to offer scanning, if this printer has a scanner."""
     sc = (network.get(device_key(device_uri)) or {}).get("scanner")
     if not sc:
+        # CUPS URI is a plain host (ipps://BRW123.local:443/ipp/print), not a
+        # DNS-SD service name: match the scanner by that host name, or by
+        # an address the printer announced when the URI holds an IP.
+        m = PLAIN_RE.match(device_uri or "")
+        want = m.group(2).strip("[]").rstrip(".").lower() if m else ""
+        for entry in network.values():
+            if want and entry.get("scanner") and (
+                    entry.get("host", "").lower() == want
+                    or any(a[1].lower() == want for a in entry.get("addrs", []))):
+                sc = entry["scanner"]
+                break
+    if not sc:
         return None
     return {"url": sc["url"], "fallback": sc.get("fallback"), "sources": sc["sources"],
             "colors": sc["colors"], "formats": sc["formats"]}
