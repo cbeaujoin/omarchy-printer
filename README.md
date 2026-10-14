@@ -140,6 +140,7 @@ Set with `omarchy bar set navjottomer.printer <key> <value>`:
 |---|---|---|
 | `tonerColors` | `real` | `real`: each toner in its own colour; `theme`: the theme accent |
 | `notifications` | `true` | notify on finished jobs, paper problems, low toner and finished scans |
+| `notifyJobNames` | `false` | put the document title in job notifications (off: the printer's name is shown instead; see below) |
 | `scanSource` | `auto` | `auto`, `platen` (glass) or `feeder` |
 | `scanColor` | `color` | `color`, `gray` or `bw` (black and white, PDF only) |
 | `scanDpi` | `300` | `100`, `200`, `300` or `600` |
@@ -193,8 +194,11 @@ grow the helper's memory. At most 8 printers, 8 toners and 20 jobs per record,
 text fields clipped to 80 characters, and each record capped at 32 KB. All
 printer-supplied text is shown as plain text, never as markup. Notifications
 go straight to the desktop's notification service over D-Bus, never through a
-command line, so a document title is not visible to other users in the process
-list. Actions run with fixed arguments, never through a shell.
+command line. A document title is **not** put in them unless you turn on
+`notifyJobNames`: Omarchy's own notification service passes each
+notification's text to a shell command, where another local account could read
+it in the process list, and titles can be private. Actions run with fixed
+arguments, never through a shell.
 
 ## Scanning
 

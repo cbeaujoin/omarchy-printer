@@ -566,6 +566,10 @@ def direct_uri(device_uri: str, network: dict) -> tuple[str, str]:
 # ---------------------------------------------------------------- notify
 
 NOTIFY = "--no-notify" not in sys.argv[1:]
+# Document titles can be private. Omarchy's notification service hands every
+# notification's text to a shell command, where another local user could read
+# it in the process list, so a title is only shown when asked for.
+JOB_NAMES = "--job-names" in sys.argv[1:]
 
 
 class _Wire:
@@ -1027,11 +1031,12 @@ class Monitor:
                     self.low.add((p["name"], m["name"]))
 
     def notify_changes(self, printers: list, current: dict, finished: dict) -> None:
-        for jid, (jname, _printer, _state) in self.active_jobs.items():
+        info = {p["name"]: p["info"] for p in printers}
+        for jid, (jname, printer_name, _state) in self.active_jobs.items():
             if jid in current:
                 continue
             state = job_state((finished.get(jid) or {}).get("job-state"))
-            label = clip(jname or "Document")
+            label = clip(jname or "Document") if JOB_NAMES else info.get(printer_name, "Printer")
             if state == "completed":
                 notify("Printed", label)
             elif state == "aborted":

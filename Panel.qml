@@ -31,6 +31,7 @@ Panel {
   }
   readonly property bool realTonerColors: !(settings && settings.tonerColors === "theme")
   readonly property bool notifications: boolSetting("notifications", true)
+  readonly property bool notifyJobNames: boolSetting("notifyJobNames", false)
 
   function choice(name, options, fallback) {
     var v = settings ? String(settings[name] === undefined || settings[name] === null ? "" : settings[name]) : ""
@@ -114,6 +115,7 @@ Panel {
     id: feed
     running: true
     command: [root.pluginDir + "bin/omarchy-printer"].concat(root.notifications ? [] : ["--no-notify"])
+      .concat(root.notifyJobNames ? ["--job-names"] : [])
     stdinEnabled: true
     stdout: SplitParser {
       onRead: function(line) {

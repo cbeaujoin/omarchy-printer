@@ -34,7 +34,8 @@
       "scanDpi": "300",
       "scanSize": "a4",
       "scanFormat": "pdf",
-      "scanOpen": false
+      "scanOpen": false,
+      "notifyJobNames": false
     },
     "schema": [
       {
@@ -52,6 +53,12 @@
         "type": "boolean",
         "label": "Notify on finished jobs, paper problems and low toner",
         "defaultValue": true
+      },
+      {
+        "key": "notifyJobNames",
+        "type": "boolean",
+        "label": "Show document titles in notifications",
+        "defaultValue": false
       },
       {
         "key": "scanSource",
