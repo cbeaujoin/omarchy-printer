@@ -35,6 +35,7 @@ import fcntl
 import json
 import os
 import re
+import resource
 import select
 import shutil
 import signal
@@ -69,6 +70,7 @@ MAX_RECORD = 32768
 MAX_ADDRS = 4
 MAX_NETWORK = 32               # network entries kept; only configured printers qualify anyway
 MAX_IPPTOOL_OUTPUT = 1 << 20   # bytes read from one ipptool run
+MAX_IPPTOOL_MEMORY = 256 << 20  # address space for one ipptool run; it holds a whole reply in RAM
 MAX_AVAHI_OUTPUT = 256 << 10   # bytes read from one avahi-browse run
 
 # Absolute paths, so nothing earlier in PATH can stand in for these.
@@ -169,16 +171,29 @@ def clip(value, n=MAX_TEXT) -> str:
     return s[:n]
 
 
-def run_capped(argv: list[str], timeout: float, limit: int) -> str | None:
+def limit_memory(nbytes: int):
+    """Return a child-setup hook that caps the child's address space."""
+    def hook() -> None:
+        try:
+            resource.setrlimit(resource.RLIMIT_AS, (nbytes, nbytes))
+        except (ValueError, OSError):
+            pass
+    return hook
+
+
+def run_capped(argv: list[str], timeout: float, limit: int, memory: int = 0) -> str | None:
     """Run argv and return its stdout, reading at most `limit` bytes.
 
     Returns None if it cannot start, runs past `timeout`, or prints more than
     `limit` bytes; the command is then killed. Printers and mDNS advertisers
-    control this output, so it is never read without a bound.
+    control this output, so it is never read without a bound. `memory` (bytes,
+    0 = none) caps the child's address space: a tool that holds a whole reply in
+    RAM before printing it, like ipptool, then fails instead of exhausting memory.
     """
     try:
         proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL)
+                                stderr=subprocess.DEVNULL,
+                                preexec_fn=limit_memory(memory) if memory else None)
     except OSError:
         return None
     buf = bytearray()
@@ -222,7 +237,8 @@ def run_ipptool(uri: str, test_file: str, variables: dict | None = None) -> list
     argv = [IPPTOOL, "-tv"]
     for k, v in (variables or {}).items():
         argv += ["-d", f"{k}={v}"]
-    out = run_capped(argv + [uri, test_file], IPPTOOL_TIMEOUT + 5, MAX_IPPTOOL_OUTPUT)
+    out = run_capped(argv + [uri, test_file], IPPTOOL_TIMEOUT + 5, MAX_IPPTOOL_OUTPUT,
+                      MAX_IPPTOOL_MEMORY)
     if out is None:
         return []
     requests: list[list[dict]] = []
