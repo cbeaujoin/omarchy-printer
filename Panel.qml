@@ -721,7 +721,10 @@ Panel {
 
                 Text {
                   id: tonerName
-                  width: Style.space(64)
+                  // Long names (Canon: "Canon Cartridge 075 Black Toner") get up to
+                  // 45% of the row and are cut with "…" instead of running under the bar.
+                  width: Math.max(Style.space(64), Math.round(parent.width * 0.45))
+                  elide: Text.ElideRight
                   anchors.left: parent.left
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText

@@ -301,7 +301,7 @@ def markers_from(attrs: dict) -> list[dict]:
     for i, name in enumerate(names[:MAX_MARKERS]):
         color = colors[i] if i < len(colors) else ""
         out.append({
-            "name": clip(MARKER_LABELS.get(name, name), 24),
+            "name": clip(MARKER_LABELS.get(name, name), 32),
             "level": to_int(levels[i]) if i < len(levels) else -1,
             "low": to_int(lows[i], 10) if i < len(lows) else 10,
             "color": color if re.fullmatch(r"#[0-9A-Fa-f]{6}", color or "") else "",
